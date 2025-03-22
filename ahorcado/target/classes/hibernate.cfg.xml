@@ -1,0 +1,22 @@
+<!DOCTYPE hibernate-configuration PUBLIC
+        "-//Hibernate/Hibernate Configuration DTD 3.0//EN"
+        "http://www.hibernate.org/dtd/hibernate-configuration-3.0.dtd">
+<hibernate-configuration>
+    <session-factory>
+        <!-- Configuración de la base de datos -->
+        <property name="hibernate.connection.driver_class">com.mysql.cj.jdbc.Driver</property>
+        <property name="hibernate.connection.url">jdbc:mysql://localhost:3306/ahorcado</property>
+        <property name="hibernate.connection.username">root</property>
+        <property name="hibernate.connection.password"></property> <!-- Sin contraseña -->
+
+        <!-- Configuración de Hibernate -->
+        <property name="hibernate.dialect">org.hibernate.dialect.MySQL8Dialect</property>
+        <property name="hibernate.hbm2ddl.auto">update</property> <!-- Actualiza el esquema de la base de datos -->
+        <property name="show_sql">true</property> <!-- Muestra las consultas SQL en la consola -->
+
+        <!-- Mapeo de entidades -->
+        <mapping class="com.liceolapaz.ahorcado.model.Palabra"/>
+        <mapping class="com.liceolapaz.ahorcado.model.Jugador"/>
+        <mapping class="com.liceolapaz.ahorcado.model.Partida"/>
+    </session-factory>
+</hibernate-configuration>
