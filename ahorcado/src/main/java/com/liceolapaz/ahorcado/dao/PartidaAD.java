@@ -1,5 +1,6 @@
 package com.liceolapaz.ahorcado.dao;
 
+import com.liceolapaz.ahorcado.model.Jugador;
 import com.liceolapaz.ahorcado.model.Partida;
 import com.liceolapaz.ahorcado.util.HibernateUtil;
 import org.hibernate.Session;
@@ -45,5 +46,15 @@ public class PartidaAD {
         } finally {
             session.close();
         }
+        
     }
+    public List<Partida> findByJugador(Jugador jugador) {
+        try (Session session = HibernateUtil.getSessionFactory().openSession()) {
+            return session.createQuery(
+                "FROM Partida p WHERE p.jugador.id = :idJugador", Partida.class)
+                .setParameter("idJugador", jugador.getId())
+                .list();
+        }
+    }
+
 }

@@ -208,20 +208,19 @@ public class GameSession implements Runnable {
         int turno = new Random().nextInt(2);
         broadcast("Modo 2 jugadores. Empieza: " + jugadores[turno].getNombre(), false);
 
+        // Esto activa al jugador correcto en el cliente desde el principio
+        broadcast("Ahora juega: " + jugadores[turno].getNombre(), false);
+
         while (partidaActiva && !palabraAdivinada()
                 && (intentosRestantes[0] > 0 || intentosRestantes[1] > 0)) {
 
             Object obj = inputs[turno].readObject();
             if (!partidaActiva) break;
 
-            // ----------------------------------------------------------
-            // JUGADA: LETRA
-            // ----------------------------------------------------------
             if (obj instanceof Character) {
                 char letra = (char) obj;
                 boolean acierto = procesarLetra(letra, turno);
 
-             // Después de fallo con letra
                 if (!acierto) {
                     intentosRestantes[turno]--;
                     if (intentosRestantes[turno] <= 0) {
@@ -229,7 +228,7 @@ public class GameSession implements Runnable {
                         int otro = (turno == 0) ? 1 : 0;
                         if (intentosRestantes[otro] > 0 && !palabraAdivinada()) {
                             broadcast("Ahora juega: " + jugadores[otro].getNombre(), false);
-                            mostrarEstadoPalabra(otro); // ← ¡AQUÍ!
+                            mostrarEstadoPalabra(otro);
                             turno = otro;
                         } else {
                             terminarPartida(false, -1);
@@ -240,16 +239,13 @@ public class GameSession implements Runnable {
                                 intentosRestantes[turno] + " intentos.");
                         int otro = (turno == 0) ? 1 : 0;
                         broadcast("Fallo. Turno para " + jugadores[otro].getNombre(), false);
-                        mostrarEstadoPalabra(otro); // ← ¡AQUÍ TAMBIÉN!
+                        broadcast("Ahora juega: " + jugadores[otro].getNombre(), false);
+                        mostrarEstadoPalabra(otro);
                         turno = otro;
                     }
                 }
 
-            }
-            // ----------------------------------------------------------
-            // JUGADA: TEXTO (CANCELAR, PUNTUACION, O ADIVINAR PALABRA)
-            // ----------------------------------------------------------
-            else if (obj instanceof String) {
+            } else if (obj instanceof String) {
                 String cmd = ((String) obj).trim();
 
                 if (cmd.equalsIgnoreCase("CANCELAR")) {
@@ -261,7 +257,6 @@ public class GameSession implements Runnable {
                     mostrarPuntuacion(turno);
 
                 } else {
-                    // intento de palabra completa
                     if (cmd.equalsIgnoreCase(palabraSecreta)) {
                         send(turno, "¡Has adivinado la palabra!: " + palabraSecreta);
                         terminarPartida(true, turno);
@@ -269,13 +264,13 @@ public class GameSession implements Runnable {
                     } else {
                         intentosRestantes[turno]--;
                         send(turno, "No era la palabra. Te quedan " +
-                            intentosRestantes[turno] + " intentos.");
+                                intentosRestantes[turno] + " intentos.");
 
                         if (intentosRestantes[turno] <= 0) {
                             int otro = (turno == 0) ? 1 : 0;
                             if (intentosRestantes[otro] > 0 && !palabraAdivinada()) {
                                 broadcast("Ahora juega: " + jugadores[otro].getNombre(), false);
-                                mostrarEstadoPalabra(otro); // << NUEVO
+                                mostrarEstadoPalabra(otro);
                                 turno = otro;
                             } else {
                                 terminarPartida(false, -1);
@@ -284,15 +279,14 @@ public class GameSession implements Runnable {
                         } else {
                             int otro = (turno == 0) ? 1 : 0;
                             broadcast("Fallo. Turno para " + jugadores[otro].getNombre(), false);
-                            mostrarEstadoPalabra(otro); // << NUEVO
+                            broadcast("Ahora juega: " + jugadores[otro].getNombre(), false);
+                            mostrarEstadoPalabra(otro);
                             turno = otro;
                         }
                     }
                 }
             }
 
-
-            // Comprobamos si la palabra está adivinada tras la jugada
             if (palabraAdivinada()) {
                 send(turno, "¡Has adivinado la palabra!: " + palabraSecreta);
                 terminarPartida(true, turno);
@@ -383,18 +377,18 @@ public class GameSession implements Runnable {
     // -------------------------------------------------------------------------
     private void mostrarPuntuacion(int idxJugador) throws IOException {
         Jugador jug = jugadores[idxJugador];
-        List<Partida> historial = jug.getPartidas();
-        if (historial == null) {
-            historial = new ArrayList<>();
-        }
+
+        // Obtener las partidas directamente desde PartidaAD
+        List<Partida> partidas = partidaAD.findByJugador(jug);
 
         int total = 0;
-        for (Partida p : historial) {
+        for (Partida p : partidas) {
             total += p.getPuntuacion();
         }
 
         send(idxJugador, "Tu puntuación global es: " + total);
     }
+
     
     // -------------------------------------------------------------------------
     // MOSTRAR ESTADO
