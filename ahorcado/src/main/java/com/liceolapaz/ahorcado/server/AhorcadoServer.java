@@ -7,10 +7,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Scanner;
 
-/**
- * Servidor que arranca en modo 1 o 2 jugadores (Enfoque A).
- * Después crea un GameSession que maneja la lógica del ahorcado.
- */
+// Me parece que está listo
 public class AhorcadoServer {
     private static final int PORT = 65000;
 

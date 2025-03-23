@@ -50,6 +50,7 @@ public class ClienteGUI extends JFrame {
         add(panel, BorderLayout.SOUTH);
 
         try {
+            // Streams
             output = new ObjectOutputStream(socket.getOutputStream());
             input = new ObjectInputStream(socket.getInputStream());
 
@@ -57,36 +58,31 @@ public class ClienteGUI extends JFrame {
             output.writeObject("NOMBRE:" + nombreJugador);
             output.flush();
 
-            // Leer mensajes iniciales del servidor
-            while (true) {
-                Object mensaje = input.readObject();
-                if (mensaje instanceof String) {
-                    String texto = (String) mensaje;
+            // LANZAMOS UN HILO PARA LEER MENSAJES DE MANERA CONTINUA
+            new Thread(() -> {
+                try {
+                    while (true) {
+                        Object mensaje = input.readObject();
+                        if (mensaje instanceof String) {
+                            String texto = (String) mensaje;
+                            // Mostramos el texto en la interfaz
+                            outputArea.append(texto + "\n");
 
-                    // Si el servidor manda "FIN_PARTIDA" antes de empezar
-                    if (texto.equalsIgnoreCase("FIN_PARTIDA")) {
-                        outputArea.append("Fin de la partida.\n");
-                        bloquearInterfaz();
-                        break;
+                            // Si el servidor manda FIN_PARTIDA, bloqueamos
+                            if (texto.equalsIgnoreCase("FIN_PARTIDA")) {
+                                bloquearInterfaz();
+                            }
+                        } 
+                        // Si no es String, puedes manejarlo aquí si hiciese falta
                     }
-
-                    // Mostrar mensaje
-                    outputArea.append(texto + "\n");
-
-                    // Rompemos el bucle si vemos un indicio de que ya comenzó
-                    if (texto.contains("Empieza el turno")
-                            || texto.contains("Empieza a jugar")
-                            || texto.contains("Partida monojugador")
-                            || texto.contains("Modo 2 jugadores")) // <-- IMPORTANTE
-                    {
-                        break;
-                    }
-                } else {
-                    break;
+                } catch (IOException | ClassNotFoundException ex) {
+                    // Cuando se cierre la conexión saltará esta excepción
+                    // Podemos simplemente salir del while
+                    System.out.println("Lectura finalizada: " + ex.getMessage());
                 }
-            }
+            }).start();
 
-        } catch (IOException | ClassNotFoundException e) {
+        } catch (IOException e) {
             JOptionPane.showMessageDialog(this,
                     "Error al conectar con el servidor: " + e.getMessage(),
                     "Error",
@@ -110,19 +106,9 @@ public class ClienteGUI extends JFrame {
                 output.writeObject(entrada);
             }
             output.flush();
-
-            // Esperar respuesta del servidor
-            String respuesta = (String) input.readObject();
-            outputArea.append(respuesta + "\n");
-
-            // Si llega FIN_PARTIDA, bloqueamos
-            if (respuesta.equals("FIN_PARTIDA")) {
-                bloquearInterfaz();
-            }
-
-        } catch (IOException | ClassNotFoundException e) {
+        } catch (IOException e) {
             JOptionPane.showMessageDialog(this,
-                    "Error al enviar o recibir datos: " + e.getMessage(),
+                    "Error al enviar datos al servidor: " + e.getMessage(),
                     "Error",
                     JOptionPane.ERROR_MESSAGE);
         }
@@ -133,12 +119,7 @@ public class ClienteGUI extends JFrame {
         try {
             output.writeObject("CANCELAR");
             output.flush();
-
-            String respuesta = (String) input.readObject();
-            outputArea.append(respuesta + "\n");
-            bloquearInterfaz();
-
-        } catch (IOException | ClassNotFoundException e) {
+        } catch (IOException e) {
             JOptionPane.showMessageDialog(this,
                     "Error al cancelar la partida: " + e.getMessage(),
                     "Error",
@@ -150,13 +131,9 @@ public class ClienteGUI extends JFrame {
         try {
             output.writeObject("PUNTUACION");
             output.flush();
-
-            String puntuacion = (String) input.readObject();
-            outputArea.append("Tu puntuación global es: " + puntuacion + "\n");
-
-        } catch (IOException | ClassNotFoundException e) {
+        } catch (IOException e) {
             JOptionPane.showMessageDialog(this,
-                    "Error al obtener la puntuación: " + e.getMessage(),
+                    "Error al solicitar la puntuación: " + e.getMessage(),
                     "Error",
                     JOptionPane.ERROR_MESSAGE);
         }

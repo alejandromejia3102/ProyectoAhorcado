@@ -10,7 +10,7 @@ import com.liceolapaz.ahorcado.model.Partida;
 import java.io.*;
 import java.net.Socket;
 import java.util.*;
-
+// Esto tambien creo
 public class GameSession implements Runnable {
     private List<Socket> sockets;
     private ObjectOutputStream[] outputs;
@@ -47,7 +47,7 @@ public class GameSession implements Runnable {
                 inputs[i] = new ObjectInputStream(sockets.get(i).getInputStream());
             }
 
-            // 2) Recibir nombre
+            // 2) Recibir nombres
             for (int i = 0; i < numeroJugadores; i++) {
                 Object obj = inputs[i].readObject();
                 if (obj instanceof String) {
@@ -107,11 +107,12 @@ public class GameSession implements Runnable {
         Arrays.fill(estado, '_');
 
         for (int i = 0; i < numeroJugadores; i++) {
+            // Al menos 1 intento
             intentosRestantes[i] = Math.max(1, palabraSecreta.length() / 2);
         }
 
-        broadcast("Comienza la partida. La palabra tiene " 
-                  + palabraSecreta.length() + " letras.", false);
+        broadcast("Comienza la partida. La palabra tiene "
+                + palabraSecreta.length() + " letras.", false);
         return true;
     }
 
@@ -119,57 +120,83 @@ public class GameSession implements Runnable {
     // MONOJUGADOR
     // -------------------------------------------------------------------------
     private void jugarMonojugador(int idx) throws IOException, ClassNotFoundException {
-        send(idx, "Partida monojugador iniciada. Tienes " 
-                  + intentosRestantes[idx] + " fallos permitidos.");
+        send(idx, "Partida monojugador iniciada. Tienes "
+                + intentosRestantes[idx] + " fallos permitidos.");
 
         while (partidaActiva && intentosRestantes[idx] > 0 && !palabraAdivinada()) {
             Object obj = inputs[idx].readObject();
             if (!partidaActiva) break;
 
+            // ----------------------------------------------------------
+            // JUGADA: LETRA
+            // ----------------------------------------------------------
             if (obj instanceof Character) {
-                boolean acierto = procesarLetra((char) obj, idx);
+                char letra = (char) obj;
+                boolean acierto = procesarLetra(letra, idx);
                 if (!acierto) {
+                    // Solo aquí mandamos el "No está la letra" (una sola vez)
                     intentosRestantes[idx]--;
+                    if (intentosRestantes[idx] <= 0) {
+                        send(idx, "Has perdido. La palabra era: " + palabraSecreta);
+                        registrarPartida(false, jugadores[idx]);
+                        send(idx, "FIN_PARTIDA");
+                        partidaActiva = false;
+                        return;
+                    } else {
+                        send(idx, "No está la letra '" + letra + "'. Te quedan "
+                                + intentosRestantes[idx] + " intentos.");
+                    }
                 }
-            } else if (obj instanceof String) {
+            }
+            // ----------------------------------------------------------
+            // JUGADA: TEXTO (CANCELAR, PUNTUACION, O ADIVINAR)
+            // ----------------------------------------------------------
+            else if (obj instanceof String) {
                 String cmd = ((String) obj).trim();
 
                 if (cmd.equalsIgnoreCase("CANCELAR")) {
                     send(idx, "Has cancelado la partida. No se guarda puntuación.");
                     partidaActiva = false;
                     return;
+
                 } else if (cmd.equalsIgnoreCase("PUNTUACION")) {
                     mostrarPuntuacion(idx);
 
-                } else { 
-                    // [NUEVO] Interpretar como intento de adivinar la palabra entera
+                } else {
+                    // Intento de adivinar palabra entera
                     if (cmd.equalsIgnoreCase(palabraSecreta)) {
+                        // ¡Acierta!
                         send(idx, "¡Has adivinado la palabra!: " + palabraSecreta);
-                        registrarPartida(true, jugadores[idx]);
+                        int puntos = (palabraSecreta.length() < 10) ? 1 : 2;
+                        registrarPartida(true, jugadores[idx], puntos);
                         send(idx, "FIN_PARTIDA");
                         partidaActiva = false;
                         return;
                     } else {
+                        // Falla adivinando la palabra
                         intentosRestantes[idx]--;
-                        send(idx, "No era la palabra. Te quedan " + intentosRestantes[idx] + " intentos.");
+                        if (intentosRestantes[idx] <= 0) {
+                            send(idx, "Has perdido. La palabra era: " + palabraSecreta);
+                            registrarPartida(false, jugadores[idx]);
+                            send(idx, "FIN_PARTIDA");
+                            partidaActiva = false;
+                            return;
+                        } else {
+                            send(idx, "No era la palabra. Te quedan "
+                                    + intentosRestantes[idx] + " intentos.");
+                        }
                     }
                 }
             }
 
-            // Chequeo si ya adivinó
+            // Comprobamos si se ha adivinado por letras
             if (palabraAdivinada()) {
                 send(idx, "¡Has adivinado la palabra!: " + palabraSecreta);
-                registrarPartida(true, jugadores[idx]);
+                int puntos = (palabraSecreta.length() < 10) ? 1 : 2;
+                registrarPartida(true, jugadores[idx], puntos);
                 send(idx, "FIN_PARTIDA");
                 partidaActiva = false;
                 return;
-            }
-
-            if (intentosRestantes[idx] <= 0) {
-                send(idx, "Te quedaste sin intentos. La palabra era: " + palabraSecreta);
-                registrarPartida(false, jugadores[idx]);
-                send(idx, "FIN_PARTIDA");
-                partidaActiva = false;
             }
         }
     }
@@ -181,35 +208,48 @@ public class GameSession implements Runnable {
         int turno = new Random().nextInt(2);
         broadcast("Modo 2 jugadores. Empieza: " + jugadores[turno].getNombre(), false);
 
-        while (partidaActiva && !palabraAdivinada() &&
-               (intentosRestantes[0] > 0 || intentosRestantes[1] > 0)) {
+        while (partidaActiva && !palabraAdivinada()
+                && (intentosRestantes[0] > 0 || intentosRestantes[1] > 0)) {
 
-            send(turno, "Es tu turno. Introduce una letra o intenta la palabra:");
             Object obj = inputs[turno].readObject();
             if (!partidaActiva) break;
 
+            // ----------------------------------------------------------
+            // JUGADA: LETRA
+            // ----------------------------------------------------------
             if (obj instanceof Character) {
-                boolean acierto = procesarLetra((char) obj, turno);
+                char letra = (char) obj;
+                boolean acierto = procesarLetra(letra, turno);
+
+             // Después de fallo con letra
                 if (!acierto) {
                     intentosRestantes[turno]--;
                     if (intentosRestantes[turno] <= 0) {
-                        send(turno, "Te quedaste sin intentos.");
+                        send(turno, "Has perdido. No te quedan más intentos.");
                         int otro = (turno == 0) ? 1 : 0;
                         if (intentosRestantes[otro] > 0 && !palabraAdivinada()) {
                             broadcast("Ahora juega: " + jugadores[otro].getNombre(), false);
+                            mostrarEstadoPalabra(otro); // ← ¡AQUÍ!
                             turno = otro;
                         } else {
                             terminarPartida(false, -1);
                             break;
                         }
                     } else {
+                        send(turno, "No está la letra '" + letra + "'. Te quedan " +
+                                intentosRestantes[turno] + " intentos.");
                         int otro = (turno == 0) ? 1 : 0;
                         broadcast("Fallo. Turno para " + jugadores[otro].getNombre(), false);
+                        mostrarEstadoPalabra(otro); // ← ¡AQUÍ TAMBIÉN!
                         turno = otro;
                     }
                 }
 
-            } else if (obj instanceof String) {
+            }
+            // ----------------------------------------------------------
+            // JUGADA: TEXTO (CANCELAR, PUNTUACION, O ADIVINAR PALABRA)
+            // ----------------------------------------------------------
+            else if (obj instanceof String) {
                 String cmd = ((String) obj).trim();
 
                 if (cmd.equalsIgnoreCase("CANCELAR")) {
@@ -221,35 +261,38 @@ public class GameSession implements Runnable {
                     mostrarPuntuacion(turno);
 
                 } else {
-                    // [NUEVO] Interpretar como intento de adivinar la palabra entera
+                    // intento de palabra completa
                     if (cmd.equalsIgnoreCase(palabraSecreta)) {
                         send(turno, "¡Has adivinado la palabra!: " + palabraSecreta);
                         terminarPartida(true, turno);
                         break;
                     } else {
                         intentosRestantes[turno]--;
-                        send(turno, "No era la palabra. Te quedan " + intentosRestantes[turno] + " intentos.");
-                        
+                        send(turno, "No era la palabra. Te quedan " +
+                            intentosRestantes[turno] + " intentos.");
+
                         if (intentosRestantes[turno] <= 0) {
                             int otro = (turno == 0) ? 1 : 0;
                             if (intentosRestantes[otro] > 0 && !palabraAdivinada()) {
                                 broadcast("Ahora juega: " + jugadores[otro].getNombre(), false);
+                                mostrarEstadoPalabra(otro); // << NUEVO
                                 turno = otro;
                             } else {
                                 terminarPartida(false, -1);
                                 break;
                             }
                         } else {
-                            // Simplemente cambio de turno
                             int otro = (turno == 0) ? 1 : 0;
                             broadcast("Fallo. Turno para " + jugadores[otro].getNombre(), false);
+                            mostrarEstadoPalabra(otro); // << NUEVO
                             turno = otro;
                         }
                     }
                 }
             }
 
-            // Ver si se adivinó al procesar o algo
+
+            // Comprobamos si la palabra está adivinada tras la jugada
             if (palabraAdivinada()) {
                 send(turno, "¡Has adivinado la palabra!: " + palabraSecreta);
                 terminarPartida(true, turno);
@@ -259,7 +302,7 @@ public class GameSession implements Runnable {
     }
 
     // -------------------------------------------------------------------------
-    // PROCESAR LETRA (sigue igual)
+    // PROCESAR LETRA (Sin mensaje de “No está la letra” para evitar duplicados)
     // -------------------------------------------------------------------------
     private boolean procesarLetra(char letra, int idxJugador) throws IOException {
         letra = Character.toUpperCase(letra);
@@ -272,12 +315,14 @@ public class GameSession implements Runnable {
             }
         }
 
+        // Si acierta, enviamos el mensaje aquí
         if (acierto) {
-            send(idxJugador, "Acertaste la letra '" + letra + "'. Estado: " + new String(estado));
-        } else {
-            send(idxJugador, "No está la letra '" + letra + "'. Te quedan "
-                             + (intentosRestantes[idxJugador] - 1) + " fallos.");
+            send(idxJugador, "Acertaste la letra '" + letra
+                    + "'. Estado: " + new String(estado));
         }
+        // Si NO acierta, no decimos nada. 
+        // El método llama a return false, y el mensaje de error se manda 
+        // fuera (en jugarMonojugador / jugarDosJugadores).
 
         return acierto;
     }
@@ -338,7 +383,7 @@ public class GameSession implements Runnable {
     // -------------------------------------------------------------------------
     private void mostrarPuntuacion(int idxJugador) throws IOException {
         Jugador jug = jugadores[idxJugador];
-        List<Partida> historial = jug.getPartidas(); 
+        List<Partida> historial = jug.getPartidas();
         if (historial == null) {
             historial = new ArrayList<>();
         }
@@ -350,6 +395,14 @@ public class GameSession implements Runnable {
 
         send(idxJugador, "Tu puntuación global es: " + total);
     }
+    
+    // -------------------------------------------------------------------------
+    // MOSTRAR ESTADO
+    // -------------------------------------------------------------------------
+    private void mostrarEstadoPalabra(int idxJugador) throws IOException {
+        send(idxJugador, "Estado actual de la palabra: " + new String(estado));
+    }
+
 
     // -------------------------------------------------------------------------
     // MÉTODOS AUXILIARES DE ENVÍO
