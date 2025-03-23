@@ -7,15 +7,24 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Scanner;
 
-// Me parece que está listo
+/**
+ * Clase principal del servidor para el juego del Ahorcado.
+ * Se encarga de inicializar el servidor, recibir conexiones de jugadores
+ * y lanzar una sesión de juego con uno o dos participantes.
+ */
 public class AhorcadoServer {
     private static final int PORT = 65000;
 
+    /**
+     * Método principal para iniciar el servidor.
+     * Solicita el número de jugadores, espera sus conexiones y lanza la partida.
+     * @param args Argumentos de la línea de comandos (no utilizados).
+     */
     public static void main(String[] args) {
         try (ServerSocket serverSocket = new ServerSocket(PORT)) {
             System.out.println("Servidor escuchando en el puerto " + PORT);
 
-            // Preguntamos cuántos jugadores en consola
+            // Preguntar cuántos jugadores jugarán (1 o 2)
             Scanner sc = new Scanner(System.in);
             int numJugadores = 0;
             while (numJugadores != 1 && numJugadores != 2) {
@@ -27,7 +36,7 @@ public class AhorcadoServer {
                 }
             }
 
-            // Esperamos conexiones
+            // Esperar conexiones
             List<Socket> sockets = new ArrayList<>();
             for (int i = 1; i <= numJugadores; i++) {
                 System.out.println("Esperando conexión para el jugador " + i + "...");
@@ -36,9 +45,8 @@ public class AhorcadoServer {
                 sockets.add(socket);
             }
 
-            // Crear la sesión de juego con esos sockets
+            // Crear sesión de juego y lanzarla en un hilo
             GameSession gameSession = new GameSession(sockets);
-            // Lanzar en un hilo aparte
             new Thread(gameSession).start();
 
             System.out.println("GameSession iniciado con " + numJugadores + " jugador(es).");

@@ -10,7 +10,11 @@ import com.liceolapaz.ahorcado.model.Partida;
 import java.io.*;
 import java.net.Socket;
 import java.util.*;
-// Esto tambien creo
+
+/**
+ * Clase que representa una sesión de juego del servidor.
+ * Gestiona la lógica de juego entre 1 o 2 jugadores conectados por socket.
+ */
 public class GameSession implements Runnable {
     private List<Socket> sockets;
     private ObjectOutputStream[] outputs;
@@ -18,61 +22,61 @@ public class GameSession implements Runnable {
     private Jugador[] jugadores;
     private int numeroJugadores;
 
-    // DAOs
     private JugadorAD jugadorAD = new JugadorAD();
     private PalabraAD palabraAD = new PalabraAD();
     private PartidaAD partidaAD = new PartidaAD();
 
-    // Variables del juego
     private String palabraSecreta;
     private char[] estado;
     private int[] intentosRestantes;
     private boolean partidaActiva = true;
 
+    /**
+     * Constructor que crea una sesión de juego con los sockets de los jugadores.
+     * @param sockets Lista de sockets de los jugadores.
+     */
     public GameSession(List<Socket> sockets) {
         this.sockets = sockets;
-        this.numeroJugadores = sockets.size(); // 1 o 2
+        this.numeroJugadores = sockets.size();
         outputs = new ObjectOutputStream[numeroJugadores];
         inputs = new ObjectInputStream[numeroJugadores];
         jugadores = new Jugador[numeroJugadores];
         intentosRestantes = new int[numeroJugadores];
     }
 
+    /**
+     * Lógica principal de ejecución del hilo. Controla el flujo del juego.
+     */
     @Override
     public void run() {
         try {
-            // 1) Inicializar streams
+            // Inicializar streams
             for (int i = 0; i < numeroJugadores; i++) {
                 outputs[i] = new ObjectOutputStream(sockets.get(i).getOutputStream());
                 inputs[i] = new ObjectInputStream(sockets.get(i).getInputStream());
             }
 
-            // 2) Recibir nombres
+            // Recibir nombres de los jugadores
             for (int i = 0; i < numeroJugadores; i++) {
                 Object obj = inputs[i].readObject();
-                if (obj instanceof String) {
-                    String msg = (String) obj;
-                    if (msg.startsWith("NOMBRE:")) {
-                        String nombre = msg.substring("NOMBRE:".length()).trim();
-                        Jugador jug = jugadorAD.getByNombre(nombre);
-                        if (jug == null) {
-                            jug = new Jugador();
-                            jug.setNombre(nombre);
-                            jugadorAD.save(jug);
-                        }
-                        jugadores[i] = jug;
-                        send(i, "Bienvenido, " + nombre + ". Esperando a que todos estén listos...");
+                if (obj instanceof String && ((String) obj).startsWith("NOMBRE:")) {
+                    String nombre = ((String) obj).substring("NOMBRE:".length()).trim();
+                    Jugador jug = jugadorAD.getByNombre(nombre);
+                    if (jug == null) {
+                        jug = new Jugador();
+                        jug.setNombre(nombre);
+                        jugadorAD.save(jug);
                     }
+                    jugadores[i] = jug;
+                    send(i, "Bienvenido, " + nombre + ". Esperando a que todos estén listos...");
                 }
             }
 
-            // 3) Iniciar partida
             if (!iniciarPartida()) {
                 partidaActiva = false;
                 return;
             }
 
-            // 4) Monojugador o 2 jugadores
             if (numeroJugadores == 1) {
                 jugarMonojugador(0);
             } else {
@@ -82,10 +86,9 @@ public class GameSession implements Runnable {
         } catch (Exception e) {
             e.printStackTrace();
         } finally {
-            // Cerrar sockets
-            for (int i = 0; i < numeroJugadores; i++) {
+            for (Socket socket : sockets) {
                 try {
-                    sockets.get(i).close();
+                    socket.close();
                 } catch (IOException e) {
                     e.printStackTrace();
                 }
@@ -93,6 +96,10 @@ public class GameSession implements Runnable {
         }
     }
 
+    /**
+     * Inicializa una nueva partida seleccionando una palabra aleatoria.
+     * @return true si se puede iniciar la partida, false si no hay palabras.
+     */
     private boolean iniciarPartida() throws IOException {
         List<Palabra> lista = palabraAD.getAll();
         if (lista.isEmpty()) {
@@ -102,39 +109,31 @@ public class GameSession implements Runnable {
 
         Palabra p = lista.get(new Random().nextInt(lista.size()));
         palabraSecreta = p.getPalabra().toUpperCase();
-
         estado = new char[palabraSecreta.length()];
         Arrays.fill(estado, '_');
 
         for (int i = 0; i < numeroJugadores; i++) {
-            // Al menos 1 intento
             intentosRestantes[i] = Math.max(1, palabraSecreta.length() / 2);
         }
 
-        broadcast("Comienza la partida. La palabra tiene "
-                + palabraSecreta.length() + " letras.", false);
+        broadcast("Comienza la partida. La palabra tiene " + palabraSecreta.length() + " letras.", false);
         return true;
     }
 
-    // -------------------------------------------------------------------------
-    // MONOJUGADOR
-    // -------------------------------------------------------------------------
+    /**
+     * Lógica del modo de juego para un solo jugador.
+     */
     private void jugarMonojugador(int idx) throws IOException, ClassNotFoundException {
-        send(idx, "Partida monojugador iniciada. Tienes "
-                + intentosRestantes[idx] + " fallos permitidos.");
+        send(idx, "Partida monojugador iniciada. Tienes " + intentosRestantes[idx] + " fallos permitidos.");
 
         while (partidaActiva && intentosRestantes[idx] > 0 && !palabraAdivinada()) {
             Object obj = inputs[idx].readObject();
             if (!partidaActiva) break;
 
-            // ----------------------------------------------------------
-            // JUGADA: LETRA
-            // ----------------------------------------------------------
             if (obj instanceof Character) {
                 char letra = (char) obj;
                 boolean acierto = procesarLetra(letra, idx);
                 if (!acierto) {
-                    // Solo aquí mandamos el "No está la letra" (una sola vez)
                     intentosRestantes[idx]--;
                     if (intentosRestantes[idx] <= 0) {
                         send(idx, "Has perdido. La palabra era: " + palabraSecreta);
@@ -143,15 +142,10 @@ public class GameSession implements Runnable {
                         partidaActiva = false;
                         return;
                     } else {
-                        send(idx, "No está la letra '" + letra + "'. Te quedan "
-                                + intentosRestantes[idx] + " intentos.");
+                        send(idx, "No está la letra '" + letra + "'. Te quedan " + intentosRestantes[idx] + " intentos.");
                     }
                 }
-            }
-            // ----------------------------------------------------------
-            // JUGADA: TEXTO (CANCELAR, PUNTUACION, O ADIVINAR)
-            // ----------------------------------------------------------
-            else if (obj instanceof String) {
+            } else if (obj instanceof String) {
                 String cmd = ((String) obj).trim();
 
                 if (cmd.equalsIgnoreCase("CANCELAR")) {
@@ -163,17 +157,13 @@ public class GameSession implements Runnable {
                     mostrarPuntuacion(idx);
 
                 } else {
-                    // Intento de adivinar palabra entera
                     if (cmd.equalsIgnoreCase(palabraSecreta)) {
-                        // ¡Acierta!
                         send(idx, "¡Has adivinado la palabra!: " + palabraSecreta);
-                        int puntos = (palabraSecreta.length() < 10) ? 1 : 2;
-                        registrarPartida(true, jugadores[idx], puntos);
+                        registrarPartida(true, jugadores[idx], palabraSecreta.length() < 10 ? 1 : 2);
                         send(idx, "FIN_PARTIDA");
                         partidaActiva = false;
                         return;
                     } else {
-                        // Falla adivinando la palabra
                         intentosRestantes[idx]--;
                         if (intentosRestantes[idx] <= 0) {
                             send(idx, "Has perdido. La palabra era: " + palabraSecreta);
@@ -182,18 +172,15 @@ public class GameSession implements Runnable {
                             partidaActiva = false;
                             return;
                         } else {
-                            send(idx, "No era la palabra. Te quedan "
-                                    + intentosRestantes[idx] + " intentos.");
+                            send(idx, "No era la palabra. Te quedan " + intentosRestantes[idx] + " intentos.");
                         }
                     }
                 }
             }
 
-            // Comprobamos si se ha adivinado por letras
             if (palabraAdivinada()) {
                 send(idx, "¡Has adivinado la palabra!: " + palabraSecreta);
-                int puntos = (palabraSecreta.length() < 10) ? 1 : 2;
-                registrarPartida(true, jugadores[idx], puntos);
+                registrarPartida(true, jugadores[idx], palabraSecreta.length() < 10 ? 1 : 2);
                 send(idx, "FIN_PARTIDA");
                 partidaActiva = false;
                 return;
@@ -201,19 +188,15 @@ public class GameSession implements Runnable {
         }
     }
 
-    // -------------------------------------------------------------------------
-    // 2 JUGADORES
-    // -------------------------------------------------------------------------
+    /**
+     * Lógica del modo de juego para dos jugadores.
+     */
     private void jugarDosJugadores() throws IOException, ClassNotFoundException {
         int turno = new Random().nextInt(2);
         broadcast("Modo 2 jugadores. Empieza: " + jugadores[turno].getNombre(), false);
-
-        // Esto activa al jugador correcto en el cliente desde el principio
         broadcast("Ahora juega: " + jugadores[turno].getNombre(), false);
 
-        while (partidaActiva && !palabraAdivinada()
-                && (intentosRestantes[0] > 0 || intentosRestantes[1] > 0)) {
-
+        while (partidaActiva && !palabraAdivinada() && (intentosRestantes[0] > 0 || intentosRestantes[1] > 0)) {
             Object obj = inputs[turno].readObject();
             if (!partidaActiva) break;
 
@@ -235,8 +218,7 @@ public class GameSession implements Runnable {
                             break;
                         }
                     } else {
-                        send(turno, "No está la letra '" + letra + "'. Te quedan " +
-                                intentosRestantes[turno] + " intentos.");
+                        send(turno, "No está la letra '" + letra + "'. Te quedan " + intentosRestantes[turno] + " intentos.");
                         int otro = (turno == 0) ? 1 : 0;
                         broadcast("Fallo. Turno para " + jugadores[otro].getNombre(), false);
                         broadcast("Ahora juega: " + jugadores[otro].getNombre(), false);
@@ -244,7 +226,6 @@ public class GameSession implements Runnable {
                         turno = otro;
                     }
                 }
-
             } else if (obj instanceof String) {
                 String cmd = ((String) obj).trim();
 
@@ -263,11 +244,9 @@ public class GameSession implements Runnable {
                         break;
                     } else {
                         intentosRestantes[turno]--;
-                        send(turno, "No era la palabra. Te quedan " +
-                                intentosRestantes[turno] + " intentos.");
-
+                        send(turno, "No era la palabra. Te quedan " + intentosRestantes[turno] + " intentos.");
+                        int otro = (turno == 0) ? 1 : 0;
                         if (intentosRestantes[turno] <= 0) {
-                            int otro = (turno == 0) ? 1 : 0;
                             if (intentosRestantes[otro] > 0 && !palabraAdivinada()) {
                                 broadcast("Ahora juega: " + jugadores[otro].getNombre(), false);
                                 mostrarEstadoPalabra(otro);
@@ -277,7 +256,6 @@ public class GameSession implements Runnable {
                                 break;
                             }
                         } else {
-                            int otro = (turno == 0) ? 1 : 0;
                             broadcast("Fallo. Turno para " + jugadores[otro].getNombre(), false);
                             broadcast("Ahora juega: " + jugadores[otro].getNombre(), false);
                             mostrarEstadoPalabra(otro);
@@ -295,9 +273,12 @@ public class GameSession implements Runnable {
         }
     }
 
-    // -------------------------------------------------------------------------
-    // PROCESAR LETRA (Sin mensaje de “No está la letra” para evitar duplicados)
-    // -------------------------------------------------------------------------
+    /**
+     * Procesa una letra introducida por un jugador y actualiza el estado de la palabra.
+     * @param letra Letra enviada.
+     * @param idxJugador Índice del jugador.
+     * @return true si acertó alguna letra.
+     */
     private boolean procesarLetra(char letra, int idxJugador) throws IOException {
         letra = Character.toUpperCase(letra);
         boolean acierto = false;
@@ -309,54 +290,52 @@ public class GameSession implements Runnable {
             }
         }
 
-        // Si acierta, enviamos el mensaje aquí
         if (acierto) {
-            send(idxJugador, "Acertaste la letra '" + letra
-                    + "'. Estado: " + new String(estado));
+            send(idxJugador, "Acertaste la letra '" + letra + "'. Estado: " + new String(estado));
         }
-        // Si NO acierta, no decimos nada. 
-        // El método llama a return false, y el mensaje de error se manda 
-        // fuera (en jugarMonojugador / jugarDosJugadores).
 
         return acierto;
     }
 
+    /**
+     * Verifica si ya no quedan letras por adivinar.
+     * @return true si la palabra está completa.
+     */
     private boolean palabraAdivinada() {
         return new String(estado).indexOf('_') == -1;
     }
 
-    // -------------------------------------------------------------------------
-    // TERMINAR PARTIDA
-    // -------------------------------------------------------------------------
+    /**
+     * Finaliza la partida, registra los resultados y avisa a los jugadores.
+     */
     private void terminarPartida(boolean acertado, int idxGanador) throws IOException {
         partidaActiva = false;
         if (!acertado) {
             broadcast("La palabra era: " + palabraSecreta + ". Nadie la adivinó.", false);
-            // Registrar 0 para todos
-            for (int i = 0; i < numeroJugadores; i++) {
-                registrarPartida(false, jugadores[i]);
-            }
+            for (Jugador j : jugadores) registrarPartida(false, j);
         } else {
-            int puntos = (palabraSecreta.length() < 10) ? 1 : 2;
+            int puntos = palabraSecreta.length() < 10 ? 1 : 2;
             registrarPartida(true, jugadores[idxGanador], puntos);
-            // El resto sin puntos
             for (int i = 0; i < numeroJugadores; i++) {
-                if (i != idxGanador) {
-                    registrarPartida(false, jugadores[i]);
-                }
+                if (i != idxGanador) registrarPartida(false, jugadores[i]);
             }
         }
 
-        // Avisar a todos
         for (int i = 0; i < numeroJugadores; i++) {
             send(i, "FIN_PARTIDA");
         }
     }
 
+    /**
+     * Registra una partida sin puntuación.
+     */
     private void registrarPartida(boolean acertado, Jugador j) {
         registrarPartida(acertado, j, 0);
     }
 
+    /**
+     * Registra una partida en la base de datos con puntuación.
+     */
     private void registrarPartida(boolean acertado, Jugador j, int puntos) {
         try {
             Palabra palabraBD = palabraAD.findByPalabra(palabraSecreta);
@@ -372,47 +351,41 @@ public class GameSession implements Runnable {
         }
     }
 
-    // -------------------------------------------------------------------------
-    // MOSTRAR PUNTUACIÓN
-    // -------------------------------------------------------------------------
+    /**
+     * Muestra la puntuación total del jugador actual.
+     */
     private void mostrarPuntuacion(int idxJugador) throws IOException {
         Jugador jug = jugadores[idxJugador];
-
-        // Obtener las partidas directamente desde PartidaAD
         List<Partida> partidas = partidaAD.findByJugador(jug);
-
-        int total = 0;
-        for (Partida p : partidas) {
-            total += p.getPuntuacion();
-        }
-
+        int total = partidas.stream().mapToInt(Partida::getPuntuacion).sum();
         send(idxJugador, "Tu puntuación global es: " + total);
     }
 
-    
-    // -------------------------------------------------------------------------
-    // MOSTRAR ESTADO
-    // -------------------------------------------------------------------------
+    /**
+     * Envía el estado actual de la palabra al jugador indicado.
+     */
     private void mostrarEstadoPalabra(int idxJugador) throws IOException {
         send(idxJugador, "Estado actual de la palabra: " + new String(estado));
     }
 
-
-    // -------------------------------------------------------------------------
-    // MÉTODOS AUXILIARES DE ENVÍO
-    // -------------------------------------------------------------------------
+    /**
+     * Envía un mensaje a un jugador específico.
+     */
     private void send(int idx, String msg) throws IOException {
         outputs[idx].writeObject(msg);
         outputs[idx].flush();
     }
 
+    /**
+     * Envía un mensaje a todos los jugadores.
+     * @param msg Mensaje a enviar.
+     * @param close Si se deben cerrar los sockets después de enviar.
+     */
     private void broadcast(String msg, boolean close) throws IOException {
         for (int i = 0; i < numeroJugadores; i++) {
             outputs[i].writeObject(msg);
             outputs[i].flush();
-            if (close) {
-                sockets.get(i).close();
-            }
+            if (close) sockets.get(i).close();
         }
     }
 }
