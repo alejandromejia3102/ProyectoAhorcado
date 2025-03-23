@@ -3,11 +3,11 @@ package com.liceolapaz.ahorcado.client;
 import javax.swing.*;
 import java.awt.*;
 import java.awt.event.ActionEvent;
-import java.awt.event.ActionListener;
 import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.net.Socket;
+import java.util.Random;
 
 public class ClienteGUI extends JFrame {
     private JTextField inputField;
@@ -16,11 +16,18 @@ public class ClienteGUI extends JFrame {
     private Socket socket;
     private ObjectOutputStream output;
     private ObjectInputStream input;
+    private String nombreJugador;
 
     public ClienteGUI(Socket socket) {
         this.socket = socket;
 
-        setTitle("Ahorcado");
+        // PEDIR NOMBRE DEL JUGADOR
+        nombreJugador = JOptionPane.showInputDialog(this, "Introduce tu nombre:");
+        if (nombreJugador == null || nombreJugador.trim().isEmpty()) {
+            nombreJugador = "Invitado" + new Random().nextInt(1000);
+        }
+
+        setTitle("Ahorcado - Jugador: " + nombreJugador);
         setSize(400, 300);
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
 
@@ -33,7 +40,7 @@ public class ClienteGUI extends JFrame {
         scoreButton = new JButton("Mostrar Puntuación");
 
         JPanel panel = new JPanel();
-        panel.add(new JLabel("Introduce una letra:"));
+        panel.add(new JLabel("Introduce una letra o palabra:"));
         panel.add(inputField);
         panel.add(sendButton);
         panel.add(cancelButton);
@@ -45,46 +52,79 @@ public class ClienteGUI extends JFrame {
         try {
             output = new ObjectOutputStream(socket.getOutputStream());
             input = new ObjectInputStream(socket.getInputStream());
-        } catch (IOException e) {
-            JOptionPane.showMessageDialog(this, "Error al inicializar streams: " + e.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
+
+            // Enviar el nombre al servidor
+            output.writeObject("NOMBRE:" + nombreJugador);
+            output.flush();
+
+            // Leer mensajes iniciales del servidor
+            while (true) {
+                Object mensaje = input.readObject();
+                if (mensaje instanceof String) {
+                    String texto = (String) mensaje;
+
+                    // Si el servidor manda "FIN_PARTIDA" antes de empezar
+                    if (texto.equalsIgnoreCase("FIN_PARTIDA")) {
+                        outputArea.append("Fin de la partida.\n");
+                        bloquearInterfaz();
+                        break;
+                    }
+
+                    // Mostrar mensaje
+                    outputArea.append(texto + "\n");
+
+                    // Rompemos el bucle si vemos un indicio de que ya comenzó
+                    if (texto.contains("Empieza el turno")
+                            || texto.contains("Empieza a jugar")
+                            || texto.contains("Partida monojugador")
+                            || texto.contains("Modo 2 jugadores")) // <-- IMPORTANTE
+                    {
+                        break;
+                    }
+                } else {
+                    break;
+                }
+            }
+
+        } catch (IOException | ClassNotFoundException e) {
+            JOptionPane.showMessageDialog(this,
+                    "Error al conectar con el servidor: " + e.getMessage(),
+                    "Error",
+                    JOptionPane.ERROR_MESSAGE);
         }
 
-        sendButton.addActionListener(new ActionListener() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                enviarLetra();
-            }
-        });
-
-        cancelButton.addActionListener(new ActionListener() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                cancelarPartida();
-            }
-        });
-
-        scoreButton.addActionListener(new ActionListener() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                mostrarPuntuacion();
-            }
-        });
+        // Acciones de botones
+        sendButton.addActionListener((ActionEvent e) -> enviarLetra());
+        cancelButton.addActionListener((ActionEvent e) -> cancelarPartida());
+        scoreButton.addActionListener((ActionEvent e) -> mostrarPuntuacion());
     }
 
     private void enviarLetra() {
-        String letra = inputField.getText().trim();
-        if (letra.length() == 1) {
-            try {
-                output.writeObject(letra.charAt(0));
-                output.flush();
-
-                String respuesta = (String) input.readObject();
-                outputArea.append(respuesta + "\n");
-            } catch (IOException | ClassNotFoundException e) {
-                JOptionPane.showMessageDialog(this, "Error al enviar o recibir datos: " + e.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
+        String entrada = inputField.getText().trim();
+        try {
+            // Si es un único carácter, lo mandamos como Character
+            if (entrada.length() == 1 && Character.isLetter(entrada.charAt(0))) {
+                output.writeObject(entrada.charAt(0));
+            } else {
+                // En caso contrario, lo mandamos como String (posible palabra completa)
+                output.writeObject(entrada);
             }
-        } else {
-            JOptionPane.showMessageDialog(this, "Introduce una sola letra.", "Error", JOptionPane.ERROR_MESSAGE);
+            output.flush();
+
+            // Esperar respuesta del servidor
+            String respuesta = (String) input.readObject();
+            outputArea.append(respuesta + "\n");
+
+            // Si llega FIN_PARTIDA, bloqueamos
+            if (respuesta.equals("FIN_PARTIDA")) {
+                bloquearInterfaz();
+            }
+
+        } catch (IOException | ClassNotFoundException e) {
+            JOptionPane.showMessageDialog(this,
+                    "Error al enviar o recibir datos: " + e.getMessage(),
+                    "Error",
+                    JOptionPane.ERROR_MESSAGE);
         }
         inputField.setText("");
     }
@@ -96,8 +136,13 @@ public class ClienteGUI extends JFrame {
 
             String respuesta = (String) input.readObject();
             outputArea.append(respuesta + "\n");
+            bloquearInterfaz();
+
         } catch (IOException | ClassNotFoundException e) {
-            JOptionPane.showMessageDialog(this, "Error al cancelar la partida: " + e.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
+            JOptionPane.showMessageDialog(this,
+                    "Error al cancelar la partida: " + e.getMessage(),
+                    "Error",
+                    JOptionPane.ERROR_MESSAGE);
         }
     }
 
@@ -108,8 +153,18 @@ public class ClienteGUI extends JFrame {
 
             String puntuacion = (String) input.readObject();
             outputArea.append("Tu puntuación global es: " + puntuacion + "\n");
+
         } catch (IOException | ClassNotFoundException e) {
-            JOptionPane.showMessageDialog(this, "Error al obtener la puntuación: " + e.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
+            JOptionPane.showMessageDialog(this,
+                    "Error al obtener la puntuación: " + e.getMessage(),
+                    "Error",
+                    JOptionPane.ERROR_MESSAGE);
         }
+    }
+
+    private void bloquearInterfaz() {
+        inputField.setEnabled(false);
+        sendButton.setEnabled(false);
+        cancelButton.setEnabled(false);
     }
 }
